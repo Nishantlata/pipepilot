@@ -6,7 +6,7 @@ pool:
 
 variables:
 
-  workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+  workingDirectorywd: '$(System.DefaultWorkingDirectory)'
   tfvarsFile: 'environments/dev/terraform.tfvars'
   planFile: 'tfplan'
 
@@ -28,7 +28,6 @@ stages:
 
     - checkout: self
 
-  
       
     - task: TerraformTask@5
       displayName: Terraform Init
