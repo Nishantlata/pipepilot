@@ -6,7 +6,7 @@ pool:
 
 variables:
 
-  workingDirectorywd: '$(System.DefaultWorkingDirectory)'
+  workingDirectorywd: '$(System.DefaultWorkingDirectory/terraform)'
   tfvarsFile: 'environments/dev/terraform.tfvars'
   planFile: 'tfplan'
 
