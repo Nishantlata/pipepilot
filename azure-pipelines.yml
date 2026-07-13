@@ -4,239 +4,26 @@ trigger:
 pool:
   name: charlie-pool
 
-variables:
 
-  workingDirectorywd: '$(System.DefaultWorkingDirectory/terraform)'
-  tfvarsFile: 'environments/dev/terraform.tfvars'
-  planFile: 'tfplan'
 
 stages:
 
-#=========================================================
-# Stage 1 - Validate
-#=========================================================
-
-- stage: Validate
-  displayName: Terraform Validate
-
+- stage: initialise
+  displayName: Terraform init
+  
   jobs:
-
-  - job: Validate
-    displayName: Validate Terraform
-
+  - job: init
     steps:
 
     - checkout: self
-
-
-      
     - task: TerraformTask@5
       displayName: Terraform Init
       inputs:
         provider: azurerm
         command: init
-        workingDirectory: $(workingDirectory)
+        workingDirectory: '$(workingDirectory)'
         backendServiceArm: 'ci_scn'
         backendAzureRmResourceGroupName: 'backendrg1'
         backendAzureRmStorageAccountName: 'backendstg10'
         backendAzureRmContainerName: 'backendcnt10'
         backendAzureRmKey: 'ci.tfstate'
-
-    - script: |
-        terraform fmt -recursive -check
-      workingDirectory: $(workingDirectory)
-      displayName: Terraform Format
-
-    - task: TerraformTask@5
-      displayName: Terraform Validate
-      inputs:
-        provider: azurerm
-        command: validate
-        workingDirectory: $(workingDirectory)
-
-#=========================================================
-# Stage 2 - tfsec
-#=========================================================
-
-- stage: tfsec
-  displayName: Terraform Security Scan
-  dependsOn: Validate
-
-  jobs:
-
-  - job: tfsec
-
-    steps:
-
-    - checkout: self
-
-    - powershell: |
-        choco install tfsec -y
-      displayName: Install tfsec
-
-    - powershell: |
-        tfsec terraform --format junit --out tfsec.xml
-      displayName: Run tfsec
-
-    - task: PublishTestResults@2
-      inputs:
-        testResultsFormat: JUnit
-        testResultsFiles: tfsec.xml
-
-    - task: PublishPipelineArtifact@1
-      inputs:
-        targetPath: tfsec.xml
-        artifact: tfsec-report
-
-#=========================================================
-# Stage 3 - Plan
-#=========================================================
-
-- stage: Plan
-  displayName: Terraform Plan
-  dependsOn: tfsec
-
-  jobs:
-
-  - job: Plan
-
-    steps:
-
-    - checkout: self
-
-    - task: TerraformInstaller@1
-      inputs:
-        terraformVersion: $(terraformVersion)
-
-    - task: TerraformTask@5
-      displayName: Terraform Init
-      inputs:
-        provider: azurerm
-        command: init
-        workingDirectory: $(workingDirectory)
-        backendServiceArm: 'ci_scn'
-        backendAzureRmResourceGroupName: 'backendrg1'
-        backendAzureRmStorageAccountName: 'backendstg10'
-        backendAzureRmContainerName: 'backendcnt10'
-        backendAzureRmKey: 'ci.tfstate'
-
-    - task: TerraformTask@5
-      displayName: Terraform Plan
-      inputs:
-        provider: azurerm
-        command: plan
-        workingDirectory: $(workingDirectory)
-        environmentServiceNameAzureRM: 'ci_scn'
-        commandOptions: >
-          -var-file=$(tfvarsFile)
-          -out=$(planFile)
-
-    - task: PublishPipelineArtifact@1
-      inputs:
-        targetPath: $(workingDirectory)/$(planFile)
-        artifact: terraform-plan
-
-#=========================================================
-# Stage 4 - Unit Test
-#=========================================================
-
-- stage: UnitTest
-  displayName: Terraform Test
-  dependsOn: Plan
-
-  jobs:
-
-  - job: UnitTest
-
-    steps:
-
-    - checkout: self
-
-    - task: TerraformInstaller@1
-      inputs:
-        terraformVersion: $(terraformVersion)
-
-    - task: TerraformTask@5
-      displayName: Terraform Init
-      inputs:
-        provider: azurerm
-        command: init
-        workingDirectory: $(workingDirectory)
-        backendServiceArm: 'ci_scn'
-        backendAzureRmResourceGroupName: 'backendrg1'
-        backendAzureRmStorageAccountName: 'backendstg10'
-        backendAzureRmContainerName: 'backendcnt10'
-        backendAzureRmKey: 'ci.tfstate'
-
-    - script: |
-        terraform test
-      workingDirectory: $(workingDirectory)
-      displayName: Terraform Unit Test
-
-#=========================================================
-# Stage 5 - Manual Approval
-#=========================================================
-
-- stage: Approval
-  displayName: Manual Approval
-  dependsOn: UnitTest
-
-  jobs:
-
-  - job: Approval
-    pool: server
-
-    steps:
-
-    - task: ManualValidation@0
-      timeoutInMinutes: 1440
-      inputs:
-        notifyUsers: ''
-        instructions: |
-          Review Terraform Plan and approve deployment.
-        onTimeout: reject
-
-#=========================================================
-# Stage 6 - Apply
-#=========================================================
-
-- stage: Apply
-  displayName: Terraform Apply
-  dependsOn: Approval
-
-  jobs:
-
-  - job: Apply
-
-    steps:
-
-    - checkout: self
-
-    - download: current
-      artifact: terraform-plan
-
-    - task: TerraformInstaller@1
-      inputs:
-        terraformVersion: $(terraformVersion)
-
-    - task: TerraformTask@5
-      displayName: Terraform Init
-      inputs:
-        provider: azurerm
-        command: init
-        workingDirectory: $(workingDirectory)
-        backendServiceArm: 'ci_scn'
-        backendAzureRmResourceGroupName: 'backendrg1'
-        backendAzureRmStorageAccountName: 'backendstg10'
-        backendAzureRmContainerName: 'backendcnt10'
-        backendAzureRmKey: 'ci.tfstate'
-
-    - task: TerraformTask@5
-      displayName: Terraform Apply
-      inputs:
-        provider: azurerm
-        command: apply
-        workingDirectory: $(workingDirectory)
-        environmentServiceNameAzureRM: 'ci_scn'
-        commandOptions: >
-          "$(Pipeline.Workspace)/terraform-plan/$(planFile)"
