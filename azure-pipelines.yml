@@ -32,6 +32,8 @@ stages:
       inputs:
         terraformVersion: $(terraformVersion)
 
+    
+
     - task: TerraformTask@5
       displayName: Terraform Init
       inputs:
