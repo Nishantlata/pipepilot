@@ -5,22 +5,24 @@ pool:
   name: charlie-pool
 
 variables:
-  workingDirectory: terraform
-  tfvarsFile: environments/dev/terraform.tfvars
-  planFile: tfplan
-  terraformVersion: 1.8.5
+  terraformVersion: '1.8.5'
+  workingDirectory: 'terraform'
+  tfvarsFile: 'environments/dev/terraform.tfvars'
+  planFile: 'tfplan'
 
 stages:
 
-#========================================================
-# VALIDATE
-#========================================================
+#=========================================================
+# Stage 1 - Validate
+#=========================================================
 
 - stage: Validate
+  displayName: Terraform Validate
 
   jobs:
 
   - job: Validate
+    displayName: Validate Terraform
 
     steps:
 
@@ -30,28 +32,36 @@ stages:
       inputs:
         terraformVersion: $(terraformVersion)
 
-    - task: AzureCLI@2
+    - task: TerraformTask@5
       displayName: Terraform Init
       inputs:
-        azureSubscription: ci_scn
-        scriptType: ps
-        scriptLocation: inlineScript
+        provider: azurerm
+        command: init
         workingDirectory: $(workingDirectory)
-        inlineScript: |
-          terraform init
+        backendServiceArm: 'ci_scn'
+        backendAzureRmResourceGroupName: 'backendrg1'
+        backendAzureRmStorageAccountName: 'backendstg10'
+        backendAzureRmContainerName: 'backendcnt10'
+        backendAzureRmKey: 'ci.tfstate'
 
-    - script: terraform fmt -recursive -check
+    - script: |
+        terraform fmt -recursive -check
       workingDirectory: $(workingDirectory)
+      displayName: Terraform Format
 
-    - script: terraform validate
-      workingDirectory: $(workingDirectory)
+    - task: TerraformTask@5
+      displayName: Terraform Validate
+      inputs:
+        provider: azurerm
+        command: validate
+        workingDirectory: $(workingDirectory)
 
-#========================================================
-# TFSEC
-#========================================================
+#=========================================================
+# Stage 2 - tfsec
+#=========================================================
 
-- stage: Security
-
+- stage: tfsec
+  displayName: Terraform Security Scan
   dependsOn: Validate
 
   jobs:
@@ -67,7 +77,7 @@ stages:
       displayName: Install tfsec
 
     - powershell: |
-        tfsec $(workingDirectory) --format junit --out tfsec.xml
+        tfsec terraform --format junit --out tfsec.xml
       displayName: Run tfsec
 
     - task: PublishTestResults@2
@@ -80,13 +90,13 @@ stages:
         targetPath: tfsec.xml
         artifact: tfsec-report
 
-#========================================================
-# PLAN
-#========================================================
+#=========================================================
+# Stage 3 - Plan
+#=========================================================
 
 - stage: Plan
-
-  dependsOn: Security
+  displayName: Terraform Plan
+  dependsOn: tfsec
 
   jobs:
 
@@ -100,28 +110,40 @@ stages:
       inputs:
         terraformVersion: $(terraformVersion)
 
-    - task: AzureCLI@2
+    - task: TerraformTask@5
+      displayName: Terraform Init
+      inputs:
+        provider: azurerm
+        command: init
+        workingDirectory: $(workingDirectory)
+        backendServiceArm: 'ci_scn'
+        backendAzureRmResourceGroupName: 'backendrg1'
+        backendAzureRmStorageAccountName: 'backendstg10'
+        backendAzureRmContainerName: 'backendcnt10'
+        backendAzureRmKey: 'ci.tfstate'
+
+    - task: TerraformTask@5
       displayName: Terraform Plan
       inputs:
-        azureSubscription: ci_scn
-        scriptType: ps
-        scriptLocation: inlineScript
+        provider: azurerm
+        command: plan
         workingDirectory: $(workingDirectory)
-        inlineScript: |
-          terraform init
-          terraform plan -var-file=$(tfvarsFile) -out=$(planFile)
+        environmentServiceNameAzureRM: 'ci_scn'
+        commandOptions: >
+          -var-file=$(tfvarsFile)
+          -out=$(planFile)
 
     - task: PublishPipelineArtifact@1
       inputs:
         targetPath: $(workingDirectory)/$(planFile)
         artifact: terraform-plan
 
-#========================================================
-# UNIT TEST
-#========================================================
+#=========================================================
+# Stage 4 - Unit Test
+#=========================================================
 
 - stage: UnitTest
-
+  displayName: Terraform Test
   dependsOn: Plan
 
   jobs:
@@ -136,23 +158,34 @@ stages:
       inputs:
         terraformVersion: $(terraformVersion)
 
+    - task: TerraformTask@5
+      displayName: Terraform Init
+      inputs:
+        provider: azurerm
+        command: init
+        workingDirectory: $(workingDirectory)
+        backendServiceArm: 'ci_scn'
+        backendAzureRmResourceGroupName: 'backendrg1'
+        backendAzureRmStorageAccountName: 'backendstg10'
+        backendAzureRmContainerName: 'backendcnt10'
+        backendAzureRmKey: 'ci.tfstate'
+
     - script: |
-        terraform init
         terraform test
       workingDirectory: $(workingDirectory)
+      displayName: Terraform Unit Test
 
-#========================================================
-# MANUAL APPROVAL
-#========================================================
+#=========================================================
+# Stage 5 - Manual Approval
+#=========================================================
 
 - stage: Approval
-
+  displayName: Manual Approval
   dependsOn: UnitTest
 
   jobs:
 
-  - job: Manual
-
+  - job: Approval
     pool: server
 
     steps:
@@ -160,16 +193,17 @@ stages:
     - task: ManualValidation@0
       timeoutInMinutes: 1440
       inputs:
-        notifyUsers: ""
-        instructions: "Review Terraform Plan before Apply"
+        notifyUsers: ''
+        instructions: |
+          Review Terraform Plan and approve deployment.
         onTimeout: reject
 
-#========================================================
-# APPLY
-#========================================================
+#=========================================================
+# Stage 6 - Apply
+#=========================================================
 
 - stage: Apply
-
+  displayName: Terraform Apply
   dependsOn: Approval
 
   jobs:
@@ -187,13 +221,24 @@ stages:
       inputs:
         terraformVersion: $(terraformVersion)
 
-    - task: AzureCLI@2
+    - task: TerraformTask@5
+      displayName: Terraform Init
+      inputs:
+        provider: azurerm
+        command: init
+        workingDirectory: $(workingDirectory)
+        backendServiceArm: 'ci_scn'
+        backendAzureRmResourceGroupName: 'backendrg1'
+        backendAzureRmStorageAccountName: 'backendstg10'
+        backendAzureRmContainerName: 'backendcnt10'
+        backendAzureRmKey: 'ci.tfstate'
+
+    - task: TerraformTask@5
       displayName: Terraform Apply
       inputs:
-        azureSubscription: ci_scn
-        scriptType: ps
-        scriptLocation: inlineScript
+        provider: azurerm
+        command: apply
         workingDirectory: $(workingDirectory)
-        inlineScript: |
-          terraform init
-          terraform apply -auto-approve "$(Pipeline.Workspace)\terraform-plan\$(planFile)"
+        environmentServiceNameAzureRM: 'ci_scn'
+        commandOptions: >
+          "$(Pipeline.Workspace)/terraform-plan/$(planFile)"
