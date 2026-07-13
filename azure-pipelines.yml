@@ -21,7 +21,7 @@ stages:
       inputs:
         provider: azurerm
         command: init
-        workingDirectory: '$(workingDirectory)'
+        workingDirectory: '$(Build.SourcesDirectory)/terraform'
         backendServiceArm: 'ci_scn'
         backendAzureRmResourceGroupName: 'backendrg1'
         backendAzureRmStorageAccountName: 'backendstg10'
