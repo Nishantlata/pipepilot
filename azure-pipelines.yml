@@ -4,13 +4,10 @@ trigger:
 pool:
   name: charlie-pool
 
-
-
 stages:
-
 - stage: initialise
-  displayName: Terraform init
-  
+  displayName: Terraform Init
+
   jobs:
   - job: init
     steps:
@@ -22,12 +19,21 @@ stages:
       inputs:
         terraformVersion: '1.8.5'
 
+    - task: AzureCLI@2
+      displayName: Azure Login
+      inputs:
+        azureSubscription: 'cicd_scn'
+        scriptType: 'ps'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          az account show
+
     - task: TerraformTask@5
       displayName: Terraform Init
       inputs:
-        provider: azurerm
-        command: init
-        workingDirectory: '$(Build.SourcesDirectory)/terraform'
+        provider: 'azurerm'
+        command: 'init'
+        workingDirectory: '$(Build.SourcesDirectory)'
         backendServiceArm: 'cicd_scn'
         backendAzureRmResourceGroupName: 'backendrg1'
         backendAzureRmStorageAccountName: 'backendstg10'
