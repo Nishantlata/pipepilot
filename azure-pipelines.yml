@@ -5,8 +5,8 @@ pool:
   name: charlie-pool
 
 variables:
-  terraformVersion: '1.8.5'
-  workingDirectory: 'terraform'
+
+  workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
   tfvarsFile: 'environments/dev/terraform.tfvars'
   planFile: 'tfplan'
 
@@ -28,12 +28,8 @@ stages:
 
     - checkout: self
 
-    - task: TerraformInstaller@1
-      inputs:
-        terraformVersion: $(terraformVersion)
-
-    
-
+  
+      
     - task: TerraformTask@5
       displayName: Terraform Init
       inputs:
