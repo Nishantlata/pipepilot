@@ -4,38 +4,223 @@ trigger:
 pool:
   name: charlie-pool
 
+variables:
+  terraformVersion: '1.8.5'
+  workingDir: '$(Build.SourcesDirectory)'
+  serviceConnection: 'cicd_scn'
+
 stages:
-- stage: initialise
-  displayName: Terraform Init
+
+#===========================================================
+# Stage 1 - Terraform Validate
+#===========================================================
+
+- stage: Validate
+  displayName: 'Terraform Validation'
 
   jobs:
-  - job: init
+
+  - job: Validate
+    displayName: 'Terraform Init, Format & Validate'
+
     steps:
 
+    # Checkout Repository
     - checkout: self
 
+    # Install Terraform
     - task: TerraformInstaller@1
-      displayName: Install Terraform
+      displayName: 'Install Terraform'
       inputs:
-        terraformVersion: '1.8.5'
+        terraformVersion: '$(terraformVersion)'
 
+    # Azure Login
     - task: AzureCLI@2
-      displayName: Azure Login
+      displayName: 'Azure Login'
       inputs:
-        azureSubscription: 'cicd_scn'
+        azureSubscription: '$(serviceConnection)'
         scriptType: 'ps'
         scriptLocation: 'inlineScript'
         inlineScript: |
           az account show
 
+    # Terraform Init
     - task: TerraformTask@5
-      displayName: Terraform Init
+      displayName: 'Terraform Init'
       inputs:
         provider: 'azurerm'
         command: 'init'
-        workingDirectory: '$(Build.SourcesDirectory)'
-        backendServiceArm: 'cicd_scn'
+        workingDirectory: '$(workingDir)'
+        backendServiceArm: '$(serviceConnection)'
         backendAzureRmResourceGroupName: 'backendrg1'
         backendAzureRmStorageAccountName: 'backendstg10'
         backendAzureRmContainerName: 'backendcnt10'
         backendAzureRmKey: 'ci.tfstate'
+
+    # Terraform Format Check
+    - task: TerraformTask@5
+      displayName: 'Terraform Format Check'
+      inputs:
+        provider: 'azurerm'
+        command: 'custom'
+        workingDirectory: '$(workingDir)'
+        outputTo: 'console'
+        customCommand: 'fmt'
+        commandOptions: '-check -recursive'
+
+    # Terraform Validate
+    - task: TerraformTask@5
+      displayName: 'Terraform Validate'
+      inputs:
+        provider: 'azurerm'
+        command: 'validate'
+        workingDirectory: '$(workingDir)'
+
+#===========================================================
+# Stage 2 - Security Scan & Terraform Plan
+#===========================================================
+
+- stage: Plan
+  displayName: 'Terraform Plan'
+  dependsOn: Validate
+  condition: succeeded()
+
+  jobs:
+
+  - job: Plan
+    displayName: 'TFSec Scan & Terraform Plan'
+
+    steps:
+
+    # Checkout Repository
+    - checkout: self
+
+    # Install Terraform
+    - task: TerraformInstaller@1
+      displayName: 'Install Terraform'
+      inputs:
+        terraformVersion: '$(terraformVersion)'
+
+    # Azure Login
+    - task: AzureCLI@2
+      displayName: 'Azure Login'
+      inputs:
+        azureSubscription: '$(serviceConnection)'
+        scriptType: 'ps'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          az account show
+
+    # Terraform Init
+    - task: TerraformTask@5
+      displayName: 'Terraform Init'
+      inputs:
+        provider: 'azurerm'
+        command: 'init'
+        workingDirectory: '$(workingDir)'
+        backendServiceArm: '$(serviceConnection)'
+        backendAzureRmResourceGroupName: 'backendrg1'
+        backendAzureRmStorageAccountName: 'backendstg10'
+        backendAzureRmContainerName: 'backendcnt10'
+        backendAzureRmKey: 'ci.tfstate'
+
+    # Install TFSec
+    - powershell: |
+        choco install tfsec -y
+        tfsec --version
+      displayName: 'Install TFSec'
+
+    # Run TFSec Scan
+    - powershell: |
+        tfsec $(workingDir)
+      displayName: 'Run TFSec Scan'
+
+    # Terraform Plan
+    - task: TerraformTask@5
+      displayName: 'Terraform Plan'
+      inputs:
+        provider: 'azurerm'
+        command: 'plan'
+        workingDirectory: '$(workingDir)'
+        environmentServiceNameAzureRM: '$(serviceConnection)'
+        commandOptions: >
+          -out=tfplan
+          -input=false
+
+    # Publish Terraform Plan
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish Terraform Plan'
+      inputs:
+        targetPath: '$(workingDir)/tfplan'
+        artifact: 'terraform-plan'
+        publishLocation: 'pipeline'
+
+#===========================================================
+# Stage 3 - Terraform Apply
+#===========================================================
+
+- stage: Apply
+  displayName: 'Terraform Apply'
+  dependsOn: Plan
+  condition: succeeded()
+
+  jobs:
+
+  - deployment: Apply
+    displayName: 'Deploy Infrastructure'
+    environment: 'dev'
+
+    strategy:
+      runOnce:
+        deploy:
+
+          steps:
+
+          # Checkout Repository
+          - checkout: self
+
+          # Install Terraform
+          - task: TerraformInstaller@1
+            displayName: 'Install Terraform'
+            inputs:
+              terraformVersion: '$(terraformVersion)'
+
+          # Azure Login
+          - task: AzureCLI@2
+            displayName: 'Azure Login'
+            inputs:
+              azureSubscription: '$(serviceConnection)'
+              scriptType: 'ps'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                az account show
+
+          # Download Plan Artifact
+          - task: DownloadPipelineArtifact@2
+            displayName: 'Download Terraform Plan'
+            inputs:
+              artifact: 'terraform-plan'
+              path: '$(workingDir)'
+
+          # Terraform Init
+          - task: TerraformTask@5
+            displayName: 'Terraform Init'
+            inputs:
+              provider: 'azurerm'
+              command: 'init'
+              workingDirectory: '$(workingDir)'
+              backendServiceArm: '$(serviceConnection)'
+              backendAzureRmResourceGroupName: 'backendrg1'
+              backendAzureRmStorageAccountName: 'backendstg10'
+              backendAzureRmContainerName: 'backendcnt10'
+              backendAzureRmKey: 'ci.tfstate'
+
+          # Terraform Apply
+          - task: TerraformTask@5
+            displayName: 'Terraform Apply'
+            inputs:
+              provider: 'azurerm'
+              command: 'apply'
+              workingDirectory: '$(workingDir)'
+              environmentServiceNameAzureRM: '$(serviceConnection)'
+              commandOptions: 'tfplan'
