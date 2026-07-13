@@ -28,7 +28,7 @@ stages:
         provider: azurerm
         command: init
         workingDirectory: '$(Build.SourcesDirectory)/terraform'
-        backendServiceArm: 'ci_scn'
+        backendServiceArm: 'cicd_scn'
         backendAzureRmResourceGroupName: 'backendrg1'
         backendAzureRmStorageAccountName: 'backendstg10'
         backendAzureRmContainerName: 'backendcnt10'
