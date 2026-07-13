@@ -28,6 +28,7 @@ stages:
 
     - checkout: self
 
+
       
     - task: TerraformTask@5
       displayName: Terraform Init
